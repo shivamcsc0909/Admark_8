@@ -1,676 +1,1403 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 
-export default function Hero() {
-  const [showSchedulePopup, setShowSchedulePopup] = useState(false);
-  const [formData, setFormData] = useState({
-    name: '',
-    email: '',
-    phone: '',
-    date: '',
-    time: '',
-    message: ''
-  });
+// Hero Component
+function Hero() {
+  const [cursorPosition, setCursorPosition] = useState({ x: 0, y: 0 });
+  const [isInHero, setIsInHero] = useState(false);
+  const [activeImages, setActiveImages] = useState([]);
+  const [videoLoaded, setVideoLoaded] = useState(false);
+  const [cursorSpeed, setCursorSpeed] = useState(0);
+  const [movementDirection, setMovementDirection] = useState({ x: 0, y: 0 });
+  
+  const videoRef = useRef(null);
+  const heroRef = useRef(null);
+  const lastPositionRef = useRef({ x: 0, y: 0 });
+  const lastTimeRef = useRef(Date.now());
+  const imageIdRef = useRef(0);
+  const animationFrameRef = useRef(null);
+  const movementHistoryRef = useRef([]);
+  const HISTORY_SIZE = 3;
 
-  const handleInputChange = (e) => {
-    setFormData({
-      ...formData,
-      [e.target.name]: e.target.value
-    });
-  };
-
-  const handleSubmit = (e) => {
-    e.preventDefault();
-    console.log('Meeting scheduled:', formData);
-    alert('✅ Meeting request sent! We will confirm via email.');
-    setShowSchedulePopup(false);
-    setFormData({
-      name: '',
-      email: '',
-      phone: '',
-      date: '',
-      time: '',
-      message: ''
-    });
-  };
+  // Sample images array - replace with your actual image paths
+  const cursorImages = [
+    '/src/assets/images/img1.jpg',
+    '/src/assets/images/img2.jpg',
+    '/src/assets/images/img3.jpg',
+    '/src/assets/images/img4.jpg',
+    '/src/assets/images/img5.jpg',
+  ];
 
   useEffect(() => {
-    if (showSchedulePopup) {
-      document.body.style.overflow = 'hidden';
-    } else {
-      document.body.style.overflow = 'unset';
+    const handleMouseMove = (e) => {
+      const currentTime = Date.now();
+      const timeDiff = currentTime - lastTimeRef.current;
+      
+      // IMMEDIATE UPDATE - NO DELAY
+      setCursorPosition({ x: e.clientX, y: e.clientY });
+      
+      if (timeDiff > 16) { // 60 FPS throttle - smooth performance
+        const currentX = e.clientX;
+        const currentY = e.clientY;
+        const deltaX = currentX - lastPositionRef.current.x;
+        const deltaY = currentY - lastPositionRef.current.y;
+        const distance = Math.sqrt(deltaX * deltaX + deltaY * deltaY);
+        const speed = distance / timeDiff;
+        
+        setCursorSpeed(speed);
+        
+        if (distance > 0) {
+          const dirX = deltaX / distance;
+          const dirY = deltaY / distance;
+          setMovementDirection({ x: dirX, y: dirY });
+          
+          // Store movement - SMALLER HISTORY
+          movementHistoryRef.current.push({
+            x: currentX,
+            y: currentY,
+            timestamp: currentTime
+          });
+          
+          // Keep only 3 recent points - NOT 10!
+          if (movementHistoryRef.current.length > 3) {
+            movementHistoryRef.current.shift();
+          }
+        }
+        
+        // TRIGGER IMMEDIATELY - NO COMPLEX CONDITIONS
+        if (speed > 0.03 && isInHero) { // Very low threshold
+          triggerImageSequence(currentX, currentY, speed);
+        }
+        
+        lastPositionRef.current = { x: currentX, y: currentY };
+        lastTimeRef.current = currentTime;
+      }
+    };
+
+    document.addEventListener('mousemove', handleMouseMove);
+    return () => {
+      document.removeEventListener('mousemove', handleMouseMove);
+      if (animationFrameRef.current) {
+        cancelAnimationFrame(animationFrameRef.current);
+      }
+    };
+  }, [isInHero]);
+
+  useEffect(() => {
+    // Handle video loading and play
+    const video = videoRef.current;
+    if (video) {
+      const handleCanPlay = () => {
+        setVideoLoaded(true);
+        video.play().catch(err => {
+          console.log('Video play failed:', err);
+        });
+      };
+
+      video.addEventListener('canplay', handleCanPlay);
+      
+      return () => {
+        video.removeEventListener('canplay', handleCanPlay);
+      };
     }
-  }, [showSchedulePopup]);
+  }, []);
+
+  const triggerImageSequence = (currentX, currentY, speed) => {
+    // NO MINIMUM HISTORY CHECK - INSTANT TRIGGER
+    const baseSize = 400;
+    const imageWidth = baseSize * 0.8;
+    const imageHeight = imageWidth * 0.625;
+
+    const newImageId = imageIdRef.current++;
+    const imageIndex = (newImageId % cursorImages.length);
+
+    // CREATE IMMEDIATELY - NO LOOP, NO DELAY
+    const newImage = {
+      id: newImageId,
+      x: currentX,
+      y: currentY,
+      src: cursorImages[imageIndex],
+      createdAt: Date.now(),
+      width: imageWidth,
+      height: imageHeight,
+      progress: 0,
+      direction: movementDirection
+    };
+
+    setActiveImages(prev => {
+      const updated = [...prev, newImage];
+      // Keep max 4 images
+      return updated.slice(-4);
+    });
+
+    // Auto remove after 1.5 seconds
+    setTimeout(() => {
+      setActiveImages(prev => prev.filter(img => img.id !== newImageId));
+    }, 1500);
+  };
+
+  const handleMouseEnter = () => setIsInHero(true);
+  const handleMouseLeave = () => {
+    setIsInHero(false);
+    // Clear all images when leaving hero section
+    setActiveImages([]);
+    movementHistoryRef.current = [];
+  };
+
+  const handleVideoError = () => {
+    console.error('Video failed to load');
+    setVideoLoaded(false);
+  };
+
+  // Faster animation
+  const getImageAnimation = (image, index) => {
+    return {
+      initial: { 
+        opacity: 0, 
+        scale: 0.5,
+        x: -movementDirection.x * 30,
+        y: -movementDirection.y * 30
+      },
+      animate: { 
+        opacity: 1,
+        scale: 1,
+        x: 0,
+        y: 0,
+        transition: {
+          duration: 0.15, // VERY FAST - 0.15s
+          ease: "easeOut"
+        }
+      },
+      exit: { 
+        opacity: 0, 
+        scale: 0.7,
+        transition: {
+          duration: 0.15,
+          ease: "easeIn"
+        }
+      }
+    };
+  };
 
   return (
     <section 
+      ref={heroRef}
       id="home" 
-      className="relative min-h-screen flex items-center justify-center overflow-hidden"
-      style={{ 
-        background: '#0A0A0A',
-        paddingTop: '70px',
-        paddingBottom: '40px'
-      }}
+      className="relative min-h-screen flex items-center justify-center overflow-hidden cursor-none"
+      onMouseEnter={handleMouseEnter}
+      onMouseLeave={handleMouseLeave}
     >
-      <div className="absolute inset-0">
-        <div
-          className="absolute w-80 h-80 rounded-full opacity-5 blur-3xl"
-          style={{
-            background: 'radial-gradient(circle, #FFC107 0%, transparent 70%)',
-            top: '15%',
-            right: '10%',
-            animation: 'float 20s ease-in-out infinite',
-          }}
-        />
-        <div
-          className="absolute w-72 h-72 rounded-full opacity-5 blur-3xl"
-          style={{
-            background: 'radial-gradient(circle, #FF9800 0%, transparent 70%)',
-            bottom: '15%',
-            left: '10%',
-            animation: 'float 25s ease-in-out infinite',
-            animationDelay: '5s',
-          }}
-        />
-      </div>
-
-      <div className="relative z-10 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-        <div className="grid lg:grid-cols-2 gap-12 items-center">
-          <motion.div
-            initial={{ opacity: 0, y: 30 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.8 }}
-          >
-            <motion.div
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              transition={{ delay: 0.2 }}
-              className="inline-flex items-center gap-2 px-4 py-2 rounded-full mb-5"
-              style={{
-                background: 'rgba(255, 193, 7, 0.1)',
-                border: '1px solid rgba(255, 193, 7, 0.3)',
-              }}
-            >
-              <span className="text-xl">💡</span>
-              <span style={{ color: '#FFC107' }} className="text-sm font-semibold">
-                Digital Marketing Excellence
-              </span>
-            </motion.div>
-
-            <motion.h1
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ delay: 0.3 }}
-              className="text-4xl sm:text-5xl lg:text-6xl font-black mb-5 leading-tight"
-              style={{
-                background: 'linear-gradient(135deg, #FFFFFF 0%, #FFC107 50%, #FF9800 100%)',
-                backgroundSize: '200% 200%',
-                WebkitBackgroundClip: 'text',
-                WebkitTextFillColor: 'transparent',
-                animation: 'gradient-flow 5s ease infinite',
-              }}
-            >
-              Transform Your Business With Data-Driven Marketing
-            </motion.h1>
-
-            <motion.p
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ delay: 0.4 }}
-              className="text-lg md:text-xl mb-8 leading-relaxed"
-              style={{ color: 'rgba(255, 255, 255, 0.85)' }}
-            >
-              We don't just create campaigns — we engineer growth systems that magnetize customers and multiply revenue.
-            </motion.p>
-
-            <motion.div
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ delay: 0.5 }}
-              className="grid grid-cols-3 gap-6 mb-8"
-            >
-              {[
-                { value: '500+', label: 'Clients', icon: '👥' },
-                { value: '300%', label: 'Avg ROI', icon: '📈' },
-                { value: '15+', label: 'Countries', icon: '🌍' }
-              ].map((stat, index) => (
-                <div key={index} className="text-center">
-                  <div className="text-2xl mb-1">{stat.icon}</div>
-                  <div className="text-3xl font-black mb-1" style={{ color: '#FFC107' }}>
-                    {stat.value}
-                  </div>
-                  <div className="text-xs font-medium" style={{ color: 'rgba(255, 255, 255, 0.6)' }}>
-                    {stat.label}
-                  </div>
-                </div>
-              ))}
-            </motion.div>
-
-            <motion.div
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ delay: 0.6 }}
-              className="flex flex-wrap gap-4"
-            >
-              <button
-                onClick={() => setShowSchedulePopup(true)}
-                className="px-7 py-3.5 rounded-full font-bold text-base transition-all duration-300 flex items-center gap-2"
-                style={{
-                  background: 'linear-gradient(135deg, #FFC107 0%, #FF9800 100%)',
-                  boxShadow: '0 8px 25px rgba(255, 193, 7, 0.4)',
-                  color: '#000'
-                }}
-                onMouseEnter={(e) => {
-                  e.target.style.transform = 'translateY(-3px)';
-                  e.target.style.boxShadow = '0 12px 35px rgba(255, 193, 7, 0.6)';
-                }}
-                onMouseLeave={(e) => {
-                  e.target.style.transform = 'translateY(0)';
-                  e.target.style.boxShadow = '0 8px 25px rgba(255, 193, 7, 0.4)';
-                }}
-              >
-                📅 Schedule Meeting
-              </button>
-
-              <a
-                href="#case-studies"
-                className="px-7 py-3.5 rounded-full font-bold text-base transition-all duration-300"
-                style={{
-                  background: 'rgba(255, 193, 7, 0.1)',
-                  border: '2px solid rgba(255, 193, 7, 0.4)',
-                  color: '#FFC107'
-                }}
-                onMouseEnter={(e) => {
-                  e.target.style.background = 'rgba(255, 193, 7, 0.2)';
-                  e.target.style.borderColor = '#FFC107';
-                }}
-                onMouseLeave={(e) => {
-                  e.target.style.background = 'rgba(255, 193, 7, 0.1)';
-                  e.target.style.borderColor = 'rgba(255, 193, 7, 0.4)';
-                }}
-              >
-                View Success Stories →
-              </a>
-            </motion.div>
-          </motion.div>
-
-          <motion.div
-            initial={{ opacity: 0, scale: 0.8 }}
-            animate={{ opacity: 1, scale: 1 }}
-            transition={{ duration: 0.8, delay: 0.3 }}
-            className="relative hidden lg:flex items-center justify-center"
-          >
-            <div className="relative w-[450px] h-[450px]" style={{ perspective: '1400px' }}>
-              {/* Glow Background */}
-              <div 
-                className="absolute inset-0 rounded-full opacity-20 blur-3xl"
-                style={{
-                  background: 'radial-gradient(circle, #FFC107 0%, #FF9800 50%, transparent 70%)',
-                  animation: 'pulse 3s ease-in-out infinite',
-                }}
-              />
-              
-              {/* 3D Cube Container */}
-              <div 
-                className="absolute inset-0 flex items-center justify-center"
-                style={{ transformStyle: 'preserve-3d' }}
-              >
-                <div
-                  className="relative"
-                  style={{
-                    width: '240px',
-                    height: '240px',
-                    transformStyle: 'preserve-3d',
-                    animation: 'spinCube 12s linear infinite',
-                  }}
-                  onMouseEnter={(e) => {
-                    e.currentTarget.style.animationPlayState = 'paused';
-                  }}
-                  onMouseLeave={(e) => {
-                    e.currentTarget.style.animationPlayState = 'running';
-                  }}
-                >
-                  {/* Front Face - SEO */}
-                  <div
-                    className="absolute inset-0 flex flex-col items-center justify-center gap-3"
-                    style={{
-                      transform: 'rotateY(0deg) translateZ(120px)',
-                      background: 'linear-gradient(135deg, rgba(255,193,7,0.08) 0%, rgba(255,152,0,0.04) 100%)',
-                      border: '2px solid rgba(255,193,7,0.3)',
-                      borderRadius: '16px',
-                      boxShadow: '0 8px 32px rgba(255,193,7,0.2), 0 0 80px rgba(255,193,7,0.1) inset',
-                      backdropFilter: 'blur(10px)',
-                      backfaceVisibility: 'hidden',
-                      transition: 'all 0.3s ease',
-                    }}
-                  >
-                    <div className="text-5xl">🎯</div>
-                    <span className="text-2xl font-black" style={{ 
-                      background: 'linear-gradient(135deg, #FFC107, #FF9800)',
-                      WebkitBackgroundClip: 'text',
-                      WebkitTextFillColor: 'transparent',
-                      textShadow: '0 6px 18px rgba(255,193,7,0.3)' 
-                    }}>
-                      SEO
-                    </span>
-                    <div className="h-1 w-16 rounded-full" style={{ background: 'linear-gradient(90deg, #FFC107, #FF9800)' }} />
-                  </div>
-
-                  {/* Right Face - SMO */}
-                  <div
-                    className="absolute inset-0 flex flex-col items-center justify-center gap-3"
-                    style={{
-                      transform: 'rotateY(90deg) translateZ(120px)',
-                      background: 'linear-gradient(135deg, rgba(161,255,222,0.08) 0%, rgba(155,225,255,0.04) 100%)',
-                      border: '2px solid rgba(161,255,222,0.3)',
-                      borderRadius: '16px',
-                      boxShadow: '0 8px 32px rgba(161,255,222,0.2), 0 0 80px rgba(161,255,222,0.1) inset',
-                      backdropFilter: 'blur(10px)',
-                      backfaceVisibility: 'hidden',
-                    }}
-                  >
-                    <div className="text-5xl">📱</div>
-                    <span className="text-2xl font-black" style={{ 
-                      background: 'linear-gradient(135deg, #a1ffde, #9be1ff)',
-                      WebkitBackgroundClip: 'text',
-                      WebkitTextFillColor: 'transparent',
-                    }}>
-                      SMO
-                    </span>
-                    <div className="h-1 w-16 rounded-full" style={{ background: 'linear-gradient(90deg, #a1ffde, #9be1ff)' }} />
-                  </div>
-
-                  {/* Back Face - PPC */}
-                  <div
-                    className="absolute inset-0 flex flex-col items-center justify-center gap-3"
-                    style={{
-                      transform: 'rotateY(180deg) translateZ(120px)',
-                      background: 'linear-gradient(135deg, rgba(255,107,107,0.08) 0%, rgba(255,77,77,0.04) 100%)',
-                      border: '2px solid rgba(255,107,107,0.3)',
-                      borderRadius: '16px',
-                      boxShadow: '0 8px 32px rgba(255,107,107,0.2), 0 0 80px rgba(255,107,107,0.1) inset',
-                      backdropFilter: 'blur(10px)',
-                      backfaceVisibility: 'hidden',
-                    }}
-                  >
-                    <div className="text-5xl">💰</div>
-                    <span className="text-2xl font-black" style={{ 
-                      background: 'linear-gradient(135deg, #ff6b6b, #ff4d4d)',
-                      WebkitBackgroundClip: 'text',
-                      WebkitTextFillColor: 'transparent',
-                    }}>
-                      PPC
-                    </span>
-                    <div className="h-1 w-16 rounded-full" style={{ background: 'linear-gradient(90deg, #ff6b6b, #ff4d4d)' }} />
-                  </div>
-
-                  {/* Left Face - Web Dev */}
-                  <div
-                    className="absolute inset-0 flex flex-col items-center justify-center gap-2 px-4"
-                    style={{
-                      transform: 'rotateY(-90deg) translateZ(120px)',
-                      background: 'linear-gradient(135deg, rgba(147,51,234,0.08) 0%, rgba(168,85,247,0.04) 100%)',
-                      border: '2px solid rgba(147,51,234,0.3)',
-                      borderRadius: '16px',
-                      boxShadow: '0 8px 32px rgba(147,51,234,0.2), 0 0 80px rgba(147,51,234,0.1) inset',
-                      backdropFilter: 'blur(10px)',
-                      backfaceVisibility: 'hidden',
-                    }}
-                  >
-                    <div className="text-4xl">💻</div>
-                    <span className="text-lg font-black text-center" style={{ 
-                      background: 'linear-gradient(135deg, #9333ea, #a855f7)',
-                      WebkitBackgroundClip: 'text',
-                      WebkitTextFillColor: 'transparent',
-                      lineHeight: '1.2'
-                    }}>
-                      Web Development
-                    </span>
-                    <div className="h-1 w-12 rounded-full" style={{ background: 'linear-gradient(90deg, #9333ea, #a855f7)' }} />
-                  </div>
-
-                  {/* Top Face - Brand */}
-                  <div
-                    className="absolute inset-0 flex flex-col items-center justify-center"
-                    style={{
-                      transform: 'rotateX(90deg) translateZ(120px)',
-                      background: 'linear-gradient(135deg, rgba(255,215,0,0.12) 0%, rgba(255,193,7,0.06) 100%)',
-                      border: '3px solid rgba(255,193,7,0.4)',
-                      borderRadius: '16px',
-                      boxShadow: '0 12px 40px rgba(255,193,7,0.3), 0 0 100px rgba(255,193,7,0.15) inset',
-                      backdropFilter: 'blur(12px)',
-                      backfaceVisibility: 'hidden',
-                      padding: '16px',
-                    }}
-                  >
-                    <div className="text-center">
-                      <div className="text-4xl mb-3">⚡</div>
-                      <div 
-                        className="font-black mb-2 text-lg"
-                        style={{
-                          background: 'linear-gradient(90deg, #ffd77a, #ffbd59, #ffd77a)',
-                          backgroundSize: '200%',
-                          WebkitBackgroundClip: 'text',
-                          WebkitTextFillColor: 'transparent',
-                          animation: 'glide 3s linear infinite',
-                          textShadow: '0 0 30px rgba(255,193,7,0.5)',
-                        }}
-                      >
-                        ADMARK
-                      </div>
-                      <div className="h-0.5 w-20 mx-auto mb-2 rounded-full" style={{ background: 'linear-gradient(90deg, transparent, #FFC107, transparent)' }} />
-                      <small className="text-xs font-bold tracking-wider" style={{ color: '#FFC107' }}>
-                        DIGITAL MEDIA
-                      </small>
-                    </div>
-                  </div>
-
-                  {/* Bottom Face */}
-                  <div
-                    className="absolute inset-0 flex items-center justify-center"
-                    style={{
-                      transform: 'rotateX(-90deg) translateZ(120px)',
-                      background: 'linear-gradient(135deg, rgba(0,0,0,0.6), rgba(0,0,0,0.4))',
-                      border: '2px solid rgba(255,255,255,0.03)',
-                      borderRadius: '16px',
-                      opacity: 0.4,
-                      backfaceVisibility: 'hidden',
-                    }}
-                  >
-                    <div className="text-6xl opacity-30">📊</div>
-                  </div>
-                </div>
-              </div>
-
-              {/* Enhanced Floating Particles */}
-              {[
-                // { emoji: '✨', angle: 0, delay: 0, size: 'text-2xl' },
-                // { emoji: '🚀', angle: 60, delay: 0.5, size: 'text-3xl' },
-                // { emoji: '💎', angle: 120, delay: 1, size: 'text-2xl' },
-                // { emoji: '⚡', angle: 180, delay: 1.5, size: 'text-3xl' },
-                // { emoji: '🎯', angle: 240, delay: 2, size: 'text-2xl' },
-                // { emoji: '🌟', angle: 300, delay: 2.5, size: 'text-3xl' }
-              ].map((item, index) => {
-                const radius = 190;
-                const x = Math.cos((item.angle * Math.PI) / 180) * radius;
-                const y = Math.sin((item.angle * Math.PI) / 180) * radius;
-                
-                return (
-                  <motion.div
-                    key={index}
-                    className={`absolute ${item.size}`}
-                    style={{
-                      left: '50%',
-                      top: '50%',
-                      transform: `translate(calc(-50% + ${x}px), calc(-50% + ${y}px))`,
-                      filter: 'drop-shadow(0 0 8px rgba(255,193,7,0.6))',
-                    }}
-                    animate={{
-                      y: [-10, 10, -10],
-                      rotate: [0, 360],
-                      scale: [1, 1.2, 1],
-                    }}
-                    transition={{
-                      duration: 4 + index * 0.5,
-                      repeat: Infinity,
-                      ease: "easeInOut",
-                      delay: item.delay,
-                    }}
-                  >
-                    {item.emoji}
-                  </motion.div>
-                );
-              })}
-
-              {/* Orbiting Rings */}
-              <div 
-                className="absolute inset-0 rounded-full"
-                style={{
-                  border: '1px solid rgba(255,193,7,0.1)',
-                  animation: 'rotate 20s linear infinite',
-                }}
-              />
-              <div 
-                className="absolute inset-8 rounded-full"
-                style={{
-                  border: '1px solid rgba(255,193,7,0.08)',
-                  animation: 'rotate 15s linear infinite reverse',
-                }}
-              />
+      {/* Full Screen Video Background */}
+      <div className="absolute inset-0 w-full h-full">
+        <video
+          ref={videoRef}
+          autoPlay
+          muted
+          loop
+          playsInline
+          preload="auto"
+          onError={handleVideoError}
+          className="w-full h-full object-cover"
+        >
+          <source src="/src/assets/home.mp4" type="video/mp4" />
+          Your browser does not support the video tag.
+        </video>
+        
+        {/* Video loading fallback */}
+        {!videoLoaded && (
+          <div className="absolute inset-0 bg-gradient-to-br from-gray-900 to-black flex items-center justify-center">
+            <div className="text-white text-center">
+              <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-yellow-500 mx-auto mb-4"></div>
+              <p>Loading video...</p>
             </div>
-          </motion.div>
-        </div>
+          </div>
+        )}
+        
+        {/* Overlay for better text readability */}
+        <div className="absolute inset-0 bg-black bg-opacity-40"></div>
       </div>
 
+      {/* Main Content - Centered */}
+      <div className="relative z-10 text-center text-white px-4 w-full max-w-6xl mx-auto">
+        <motion.h1
+          initial={{ opacity: 0, y: 30 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.8 }}
+          className="text-6xl md:text-8xl lg:text-9xl font-black mb-6 leading-tight"
+          style={{
+            color: 'white',
+            fontFamily: "montserrat",
+            width: '100%',
+            textShadow: '3px 3px 12px rgba(0,0,0,0.8)',
+            fontWeight: 'bold',
+            letterSpacing: '2px',
+          }}
+        >
+          Admark Digital Media
+        </motion.h1>
+
+        <motion.p
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.2, duration: 0.8 }}
+          className="text-2xl md:text-3xl lg:text-4xl font-light mb-8 leading-relaxed text-white"
+          style={{
+            fontFamily: "montserrat",
+            textShadow: '2px 2px 8px rgba(0,0,0,0.7)',
+          }}
+        >
+          Elevate your brand with expert digital marketing
+        </motion.p>
+      </div>
+
+      {/* Sequential Popup Images */}
       <AnimatePresence>
-        {showSchedulePopup && (
-          <>
+        {activeImages.map((image, index) => {
+          const animation = getImageAnimation(image, index);
+          
+          return (
             <motion.div
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              className="fixed inset-0 bg-black bg-opacity-85 z-[1000] flex items-center justify-center p-4"
-              onClick={() => setShowSchedulePopup(false)}
+              key={image.id}
+              className="fixed pointer-events-none z-50"
+              style={{
+                left: image.x,
+                top: image.y,
+                transform: 'translate(-50%, -50%)',
+                zIndex: 50 + index,
+              }}
+              initial={animation.initial}
+              animate={animation.animate}
+              exit={animation.exit}
             >
-              <motion.div
-                initial={{ opacity: 0, scale: 0.9 }}
-                animate={{ opacity: 1, scale: 1 }}
-                exit={{ opacity: 0, scale: 0.9 }}
-                onClick={(e) => e.stopPropagation()}
-                className="w-full max-w-2xl max-h-[90vh] overflow-y-auto rounded-2xl p-8 relative"
+              <motion.img
+                src={image.src}
+                alt="Popup image"
+                className="popup-image"
                 style={{
-                  background: 'rgba(15, 15, 15, 0.98)',
-                  backdropFilter: 'blur(20px)',
-                  border: '2px solid rgba(255, 193, 7, 0.3)',
-                  boxShadow: '0 25px 50px -12px rgba(255, 193, 7, 0.4)',
+                  width: `${image.width}px`,
+                  height: `${image.height}px`,
+                  borderRadius: '8px',
+                  boxShadow: '0 10px 25px rgba(0,0,0,0.4)',
+                  border: '2px solid rgba(255, 255, 255, 0.9)',
+                  objectFit: 'cover'
                 }}
-              >
-                <button
-                  onClick={() => setShowSchedulePopup(false)}
-                  className="absolute top-6 right-6 w-10 h-10 rounded-full flex items-center justify-center transition-all z-10"
-                  style={{
-                    background: 'rgba(255, 193, 7, 0.1)',
-                    color: '#FFC107',
-                    border: '1px solid rgba(255, 193, 7, 0.3)'
-                  }}
-                  onMouseEnter={(e) => {
-                    e.target.style.background = 'rgba(255, 193, 7, 0.2)';
-                    e.target.style.transform = 'rotate(90deg)';
-                  }}
-                  onMouseLeave={(e) => {
-                    e.target.style.background = 'rgba(255, 193, 7, 0.1)';
-                    e.target.style.transform = 'rotate(0deg)';
-                  }}
-                >
-                  ✕
-                </button>
-
-                <div className="text-center mb-8">
-                  <h2 className="text-4xl font-black mb-3" style={{ color: '#FFC107' }}>
-                    Schedule Your Free Consultation
-                  </h2>
-                  <p className="text-lg" style={{ color: 'rgba(255, 255, 255, 0.7)' }}>
-                    Let's discuss how we can grow your business together
-                  </p>
-                </div>
-
-                <div className="space-y-5" onSubmit={handleSubmit}>
-                  <div className="grid md:grid-cols-2 gap-5">
-                    <div>
-                      <label className="block text-sm font-semibold mb-2" style={{ color: 'rgba(255, 255, 255, 0.9)' }}>
-                        Full Name *
-                      </label>
-                      <input
-                        type="text"
-                        name="name"
-                        value={formData.name}
-                        onChange={handleInputChange}
-                        required
-                        className="w-full px-4 py-3 rounded-lg transition-all focus:outline-none focus:ring-2"
-                        style={{
-                          background: 'rgba(255, 193, 7, 0.05)',
-                          border: '1px solid rgba(255, 193, 7, 0.2)',
-                          color: 'white'
-                        }}
-                        placeholder="John Doe"
-                      />
-                    </div>
-
-                    <div>
-                      <label className="block text-sm font-semibold mb-2" style={{ color: 'rgba(255, 255, 255, 0.9)' }}>
-                        Email Address *
-                      </label>
-                      <input
-                        type="email"
-                        name="email"
-                        value={formData.email}
-                        onChange={handleInputChange}
-                        required
-                        className="w-full px-4 py-3 rounded-lg transition-all focus:outline-none focus:ring-2"
-                        style={{
-                          background: 'rgba(255, 193, 7, 0.05)',
-                          border: '1px solid rgba(255, 193, 7, 0.2)',
-                          color: 'white'
-                        }}
-                        placeholder="john@company.com"
-                      />
-                    </div>
-                  </div>
-
-                  <div>
-                    <label className="block text-sm font-semibold mb-2" style={{ color: 'rgba(255, 255, 255, 0.9)' }}>
-                      Phone Number
-                    </label>
-                    <input
-                      type="tel"
-                      name="phone"
-                      value={formData.phone}
-                      onChange={handleInputChange}
-                      className="w-full px-4 py-3 rounded-lg transition-all focus:outline-none focus:ring-2"
-                      style={{
-                        background: 'rgba(255, 193, 7, 0.05)',
-                        border: '1px solid rgba(255, 193, 7, 0.2)',
-                        color: 'white'
-                      }}
-                      placeholder="+1 (555) 123-4567"
-                    />
-                  </div>
-
-                  <div className="grid md:grid-cols-2 gap-5">
-                    <div>
-                      <label className="block text-sm font-semibold mb-2" style={{ color: 'rgba(255, 255, 255, 0.9)' }}>
-                        Preferred Date *
-                      </label>
-                      <input
-                        type="date"
-                        name="date"
-                        value={formData.date}
-                        onChange={handleInputChange}
-                        required
-                        className="w-full px-4 py-3 rounded-lg transition-all focus:outline-none focus:ring-2"
-                        style={{
-                          background: 'rgba(255, 193, 7, 0.05)',
-                          border: '1px solid rgba(255, 193, 7, 0.2)',
-                          color: 'white',
-                          colorScheme: 'dark'
-                        }}
-                      />
-                    </div>
-
-                    <div>
-                      <label className="block text-sm font-semibold mb-2" style={{ color: 'rgba(255, 255, 255, 0.9)' }}>
-                        Preferred Time *
-                      </label>
-                      <select
-                        name="time"
-                        value={formData.time}
-                        onChange={handleInputChange}
-                        required
-                        className="w-full px-4 py-3 rounded-lg transition-all focus:outline-none focus:ring-2"
-                        style={{
-                          background: 'rgba(255, 193, 7, 0.05)',
-                          border: '1px solid rgba(255, 193, 7, 0.2)',
-                          color: 'white'
-                        }}
-                      >
-                        <option value="" style={{ background: '#1a1a1a' }}>Select time</option>
-                        <option value="9:00 AM" style={{ background: '#1a1a1a' }}>9:00 AM</option>
-                        <option value="10:00 AM" style={{ background: '#1a1a1a' }}>10:00 AM</option>
-                        <option value="11:00 AM" style={{ background: '#1a1a1a' }}>11:00 AM</option>
-                        <option value="12:00 PM" style={{ background: '#1a1a1a' }}>12:00 PM</option>
-                        <option value="1:00 PM" style={{ background: '#1a1a1a' }}>1:00 PM</option>
-                        <option value="2:00 PM" style={{ background: '#1a1a1a' }}>2:00 PM</option>
-                        <option value="3:00 PM" style={{ background: '#1a1a1a' }}>3:00 PM</option>
-                        <option value="4:00 PM" style={{ background: '#1a1a1a' }}>4:00 PM</option>
-                        <option value="5:00 PM" style={{ background: '#1a1a1a' }}>5:00 PM</option>
-                      </select>
-                    </div>
-                  </div>
-
-                  <div>
-                    <label className="block text-sm font-semibold mb-2" style={{ color: 'rgba(255, 255, 255, 0.9)' }}>
-                      Message (Optional)
-                    </label>
-                    <textarea
-                      name="message"
-                      value={formData.message}
-                      onChange={handleInputChange}
-                      rows="4"
-                      className="w-full px-4 py-3 rounded-lg resize-none transition-all focus:outline-none focus:ring-2"
-                      style={{
-                        background: 'rgba(255, 193, 7, 0.05)',
-                        border: '1px solid rgba(255, 193, 7, 0.2)',
-                        color: 'white'
-                      }}
-                      placeholder="Tell us about your business goals..."
-                    />
-                  </div>
-
-                  <button
-                    onClick={handleSubmit}
-                    className="w-full py-4 rounded-full font-bold text-xl transition-all duration-300"
-                    style={{
-                      background: 'linear-gradient(135deg, #FFC107 0%, #FF9800 100%)',
-                      boxShadow: '0 8px 25px rgba(255, 193, 7, 0.4)',
-                      color: '#000'
-                    }}
-                    onMouseEnter={(e) => {
-                      e.target.style.transform = 'scale(1.02)';
-                      e.target.style.boxShadow = '0 12px 35px rgba(255, 193, 7, 0.6)';
-                    }}
-                    onMouseLeave={(e) => {
-                      e.target.style.transform = 'scale(1)';
-                      e.target.style.boxShadow = '0 8px 25px rgba(255, 193, 7, 0.4)';
-                    }}
-                  >
-                    Confirm Meeting 🚀
-                  </button>
-                </div>
-              </motion.div>
+                onError={(e) => {
+                  e.target.src = `https://picsum.photos/${Math.floor(image.width)}/${Math.floor(image.height)}?random=${image.id}`;
+                }}
+              />
             </motion.div>
-          </>
-        )}
+          );
+        })}
       </AnimatePresence>
 
-      <style>{`
-        @keyframes gradient-flow {
-          0%, 100% { background-position: 0% 50%; }
-          50% { background-position: 100% 50%; }
+      {/* CURSOR REMOVED - Only image animation remains */}
+
+      <style jsx>{`
+        .popup-image {
+          object-fit: cover;
+          transition: all 0.2s ease;
         }
-        @keyframes spinCube {
-          from { transform: rotateX(-20deg) rotateY(0deg); }
-          to { transform: rotateX(-20deg) rotateY(360deg); }
-        }
-        @keyframes glide {
-          0% { background-position: 0%; }
-          50% { background-position: 100%; }
-          100% { background-position: 0%; }
-        }
+
         @keyframes float {
-          0%, 100% { transform: translate(var(--tx), var(--ty)) translateY(0px); }
-          50% { transform: translate(var(--tx), var(--ty)) translateY(-20px); }
+          0%, 100% { transform: translateY(0px) rotate(0deg); }
+          50% { transform: translateY(-10px) rotate(1deg); }
         }
+      `}</style>
+
+      <style jsx global>{`
+        /* Hide default cursor when in hero section */
+        #home, #home * {
+          cursor: none !important;
+        }
+
+        /* Import Google Font for cursive style */
+        @import url('https://fonts.googleapis.com/css2?family=Dancing+Script:wght@400;500;600;700&display=swap');
       `}</style>
     </section>
   );
 }
+
+// Sidebar Component
+function Sidebar() {
+  const [isSidebarExpanded, setIsSidebarExpanded] = useState(false);
+  const [isScrolled, setIsScrolled] = useState(false);
+  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
+  const [isPopupOpen, setIsPopupOpen] = useState(false);
+  const [isSearchOpen, setIsSearchOpen] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [formData, setFormData] = useState({
+    websiteUrl: '',
+    websiteName: '',
+    email: '',
+    phone: ''
+  });
+  const [isSubmitted, setIsSubmitted] = useState(false);
+
+  useEffect(() => {
+    const handleScroll = () => {
+      setIsScrolled(window.scrollY > 20);
+    };
+    window.addEventListener('scroll', handleScroll);
+    return () => window.removeEventListener('scroll', handleScroll);
+  }, []);
+
+  const navLinks = [
+    { name: 'Home', href: '#home' },
+    { name: 'Services', href: '/services' },
+    { name: 'Portfolio', href: '/portfolio' },
+    { name: 'About', href: '/about' },
+    { name: 'Blog', href: '/blog' },
+    { name: 'FAQ', href: '/faq' },
+    { name: 'Testimonial', href: '/testimonial' }
+  ];
+
+  const handleSmoothScroll = (e, href) => {
+    if (href.startsWith('#')) {
+      e.preventDefault();
+      const element = document.querySelector(href);
+      if (element) {
+        element.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      }
+    }
+  };
+
+  const handleInputChange = (e) => {
+    const { name, value } = e.target;
+    setFormData(prevState => ({
+      ...prevState,
+      [name]: value
+    }));
+  };
+
+  const handleSubmit = (e) => {
+    e.preventDefault();
+    console.log('Form submitted:', formData);
+    setIsSubmitted(true);
+    
+    setTimeout(() => {
+      setIsSubmitted(false);
+      setIsPopupOpen(false);
+      setFormData({
+        websiteUrl: '',
+        websiteName: '',
+        email: '',
+        phone: ''
+      });
+    }, 3000);
+  };
+
+  const handleSearchSubmit = (e) => {
+    e.preventDefault();
+    if (searchQuery.trim()) {
+      console.log('Search query:', searchQuery);
+      setIsSearchOpen(false);
+      setSearchQuery('');
+    }
+  };
+
+  const openPopup = () => {
+    setIsPopupOpen(true);
+    setIsSubmitted(false);
+  };
+
+  const closePopup = () => {
+    setIsPopupOpen(false);
+    setIsSubmitted(false);
+    setFormData({
+      websiteUrl: '',
+      websiteName: '',
+      email: '',
+      phone: ''
+    });
+  };
+
+  const openSearch = () => {
+    setIsSearchOpen(true);
+  };
+
+  const closeSearch = () => {
+    setIsSearchOpen(false);
+    setSearchQuery('');
+  };
+
+  const toggleSidebar = () => {
+    setIsSidebarExpanded(!isSidebarExpanded);
+  };
+
+  const FreeAuditPopup = () => {
+    if (!isPopupOpen) return null;
+
+    return (
+      <div style={{
+        position: 'fixed',
+        top: 0,
+        left: 0,
+        right: 0,
+        bottom: 0,
+        backgroundColor: 'rgba(0, 0, 0, 0.95)',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        zIndex: 10000,
+        backdropFilter: 'blur(10px)'
+      }}>
+        <div style={{
+          background: 'linear-gradient(135deg, #000000 0%, #1a1a1a 100%)',
+          borderRadius: '12px',
+          padding: '30px',
+          width: '95%',
+          maxWidth: '450px',
+          border: '2px solid #FF8C00',
+          boxShadow: '0 10px 40px rgba(255, 140, 0, 0.3)',
+          position: 'relative'
+        }}>
+          <button
+            onClick={closePopup}
+            style={{
+              position: 'absolute',
+              top: '12px',
+              right: '15px',
+              background: '#333',
+              border: '1px solid #FF8C00',
+              color: '#FF8C00',
+              fontSize: '18px',
+              cursor: 'pointer',
+              padding: '4px',
+              borderRadius: '50%',
+              width: '32px',
+              height: '32px',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              transition: 'all 0.3s ease'
+            }}
+            onMouseEnter={(e) => {
+              e.target.style.background = '#FF8C00';
+              e.target.style.color = '#000';
+            }}
+            onMouseLeave={(e) => {
+              e.target.style.background = '#333';
+              e.target.style.color = '#FF8C00';
+            }}
+          >
+            ×
+          </button>
+
+          {!isSubmitted ? (
+            <>
+              <h2 style={{
+                color: '#FF8C00',
+                textAlign: 'center',
+                marginBottom: '25px',
+                fontSize: '32px',
+                fontWeight: '700',
+                fontFamily: "'Montserrat', sans-serif",
+                textShadow: '0 2px 10px rgba(255, 140, 0, 0.4)'
+              }}>
+                Free Website Audit
+              </h2>
+              
+              <form onSubmit={handleSubmit}>
+                <div style={{ marginBottom: '18px' }}>
+                  <label style={{
+                    display: 'block',
+                    color: '#FF8C00',
+                    marginBottom: '8px',
+                    fontWeight: '600',
+                    fontSize: '18px',
+                    fontFamily: "'Montserrat', sans-serif"
+                  }}>
+                    Website URL *
+                  </label>
+                  <input
+                    type="url"
+                    name="websiteUrl"
+                    value={formData.websiteUrl}
+                    onChange={handleInputChange}
+                    required
+                    style={{
+                      width: '100%',
+                      padding: '14px',
+                      borderRadius: '6px',
+                      border: '1px solid #FF8C00',
+                      background: '#0a0a0a',
+                      color: '#fff',
+                      fontSize: '16px',
+                      transition: 'all 0.3s ease',
+                      fontFamily: "'Montserrat', sans-serif"
+                    }}
+                    onFocus={(e) => {
+                      e.target.style.borderColor = '#FFA500';
+                      e.target.style.boxShadow = '0 0 10px rgba(255, 140, 0, 0.3)';
+                    }}
+                    onBlur={(e) => {
+                      e.target.style.borderColor = '#FF8C00';
+                      e.target.style.boxShadow = 'none';
+                    }}
+                  />
+                </div>
+
+                <div style={{ marginBottom: '18px' }}>
+                  <label style={{
+                    display: 'block',
+                    color: '#FF8C00',
+                    marginBottom: '8px',
+                    fontWeight: '600',
+                    fontSize: '18px',
+                    fontFamily: "'Montserrat', sans-serif"
+                  }}>
+                    Website Name *
+                  </label>
+                  <input
+                    type="text"
+                    name="websiteName"
+                    value={formData.websiteName}
+                    onChange={handleInputChange}
+                    required
+                    style={{
+                      width: '100%',
+                      padding: '14px',
+                      borderRadius: '6px',
+                      border: '1px solid #FF8C00',
+                      background: '#0a0a0a',
+                      color: '#fff',
+                      fontSize: '16px',
+                      transition: 'all 0.3s ease',
+                      fontFamily: "'Montserrat', sans-serif"
+                    }}
+                    onFocus={(e) => {
+                      e.target.style.borderColor = '#FFA500';
+                      e.target.style.boxShadow = '0 0 10px rgba(255, 140, 0, 0.3)';
+                    }}
+                    onBlur={(e) => {
+                      e.target.style.borderColor = '#FF8C00';
+                      e.target.style.boxShadow = 'none';
+                    }}
+                  />
+                </div>
+
+                <div style={{ marginBottom: '18px' }}>
+                  <label style={{
+                    display: 'block',
+                    color: '#FF8C00',
+                    marginBottom: '8px',
+                    fontWeight: '600',
+                    fontSize: '18px',
+                    fontFamily: "'Montserrat', sans-serif"
+                  }}>
+                    Email Address *
+                  </label>
+                  <input
+                    type="email"
+                    name="email"
+                    value={formData.email}
+                    onChange={handleInputChange}
+                    required
+                    style={{
+                      width: '100%',
+                      padding: '14px',
+                      borderRadius: '6px',
+                      border: '1px solid #FF8C00',
+                      background: '#0a0a0a',
+                      color: '#fff',
+                      fontSize: '16px',
+                      transition: 'all 0.3s ease',
+                      fontFamily: "'Montserrat', sans-serif"
+                    }}
+                    onFocus={(e) => {
+                      e.target.style.borderColor = '#FFA500';
+                      e.target.style.boxShadow = '0 0 10px rgba(255, 140, 0, 0.3)';
+                    }}
+                    onBlur={(e) => {
+                      e.target.style.borderColor = '#FF8C00';
+                      e.target.style.boxShadow = 'none';
+                    }}
+                  />
+                </div>
+
+                <div style={{ marginBottom: '25px' }}>
+                  <label style={{
+                    display: 'block',
+                    color: '#FF8C00',
+                    marginBottom: '8px',
+                    fontWeight: '600',
+                    fontSize: '18px',
+                    fontFamily: "'Montserrat', sans-serif"
+                  }}>
+                    Phone Number (Optional)
+                  </label>
+                  <input
+                    type="tel"
+                    name="phone"
+                    value={formData.phone}
+                    onChange={handleInputChange}
+                    style={{
+                      width: '100%',
+                      padding: '14px',
+                      borderRadius: '6px',
+                      border: '1px solid #FF8C00',
+                      background: '#0a0a0a',
+                      color: '#fff',
+                      fontSize: '16px',
+                      transition: 'all 0.3s ease',
+                      fontFamily: "'Montserrat', sans-serif"
+                    }}
+                    onFocus={(e) => {
+                      e.target.style.borderColor = '#FFA500';
+                      e.target.style.boxShadow = '0 0 10px rgba(255, 140, 0, 0.3)';
+                    }}
+                    onBlur={(e) => {
+                      e.target.style.borderColor = '#FF8C00';
+                      e.target.style.boxShadow = 'none';
+                    }}
+                  />
+                </div>
+
+                <button
+                  type="submit"
+                  style={{
+                    width: '100%',
+                    padding: '16px',
+                    borderRadius: '6px',
+                    background: 'linear-gradient(135deg, #FF8C00, #FFD700, #FF6347)',
+                    color: '#000',
+                    border: 'none',
+                    fontWeight: '700',
+                    cursor: 'pointer',
+                    fontFamily: "'Montserrat', sans-serif",
+                    fontSize: '18px',
+                    transition: 'all 0.3s ease',
+                    textShadow: '0 1px 2px rgba(0,0,0,0.3)'
+                  }}
+                  onMouseEnter={(e) => {
+                    e.target.style.background = 'linear-gradient(135deg, #FFA500, #FFDF00, #FF7F50)';
+                    e.target.style.transform = 'translateY(-2px)';
+                    e.target.style.boxShadow = '0 5px 15px rgba(255, 140, 0, 0.5)';
+                  }}
+                  onMouseLeave={(e) => {
+                    e.target.style.background = 'linear-gradient(135deg, #FF8C00, #FFD700, #FF6347)';
+                    e.target.style.transform = 'translateY(0)';
+                    e.target.style.boxShadow = 'none';
+                  }}
+                >
+                  Submit for Free Audit
+                </button>
+              </form>
+            </>
+          ) : (
+            <div style={{ textAlign: 'center', padding: '20px' }}>
+              <div style={{ fontSize: '50px', marginBottom: '15px' }}>✅</div>
+              <h3 style={{ 
+                color: '#FF8C00', 
+                fontSize: '26px', 
+                marginBottom: '12px', 
+                fontWeight: '700',
+                fontFamily: "'Montserrat', sans-serif",
+                textShadow: '0 2px 10px rgba(255, 140, 0, 0.4)'
+              }}>
+                Request Submitted!
+              </h3>
+              <p style={{ 
+                color: '#ccc', 
+                fontSize: '18px',
+                fontFamily: "'Montserrat', sans-serif",
+                lineHeight: '1.5'
+              }}>
+                Your free audit report will be sent to your email within 24 hours.
+              </p>
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  };
+
+  const SearchPopup = () => {
+    if (!isSearchOpen) return null;
+
+    return (
+      <div style={{
+        position: 'fixed',
+        top: 0,
+        left: 0,
+        right: 0,
+        bottom: 0,
+        backgroundColor: 'rgba(0, 0, 0, 0.95)',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        zIndex: 10000,
+        backdropFilter: 'blur(10px)'
+      }}>
+        <div style={{
+          background: 'linear-gradient(135deg, #000000 0%, #1a1a1a 100%)',
+          borderRadius: '12px',
+          padding: '30px',
+          width: '95%',
+          maxWidth: '450px',
+          border: '2px solid #FF8C00',
+          boxShadow: '0 10px 40px rgba(255, 140, 0, 0.3)',
+          position: 'relative'
+        }}>
+          <button
+            onClick={closeSearch}
+            style={{
+              position: 'absolute',
+              top: '12px',
+              right: '15px',
+              background: '#333',
+              border: '1px solid #FF8C00',
+              color: '#FF8C00',
+              fontSize: '18px',
+              cursor: 'pointer',
+              padding: '4px',
+              borderRadius: '50%',
+              width: '32px',
+              height: '32px',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              transition: 'all 0.3s ease'
+            }}
+            onMouseEnter={(e) => {
+              e.target.style.background = '#FF8C00';
+              e.target.style.color = '#000';
+            }}
+            onMouseLeave={(e) => {
+              e.target.style.background = '#333';
+              e.target.style.color = '#FF8C00';
+            }}
+          >
+            ×
+          </button>
+
+          <h2 style={{
+            color: '#FF8C00',
+            textAlign: 'center',
+            marginBottom: '25px',
+            fontSize: '32px',
+            fontWeight: '700',
+            fontFamily: "'Montserrat', sans-serif",
+            textShadow: '0 2px 10px rgba(255, 140, 0, 0.4)'
+          }}>
+            Search Our Site
+          </h2>
+          
+          <form onSubmit={handleSearchSubmit}>
+            <div style={{ marginBottom: '25px' }}>
+              <input
+                type="text"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                placeholder="What you're looking for..."
+                required
+                style={{
+                  width: '100%',
+                  padding: '16px',
+                  borderRadius: '6px',
+                  border: '1px solid #FF8C00',
+                  background: '#0a0a0a',
+                  color: '#fff',
+                  fontSize: '18px',
+                  transition: 'all 0.3s ease',
+                  fontFamily: "'Montserrat', sans-serif"
+                }}
+                onFocus={(e) => {
+                  e.target.style.borderColor = '#FFA500';
+                  e.target.style.boxShadow = '0 0 15px rgba(255, 140, 0, 0.4)';
+                }}
+                onBlur={(e) => {
+                  e.target.style.borderColor = '#FF8C00';
+                  e.target.style.boxShadow = 'none';
+                }}
+              />
+            </div>
+
+            <button
+              type="submit"
+              style={{
+                width: '100%',
+                padding: '16px',
+                borderRadius: '6px',
+                background: 'linear-gradient(135deg, #FF8C00, #FFD700, #FF6347)',
+                color: '#000',
+                border: 'none',
+                fontWeight: '700',
+                cursor: 'pointer',
+                fontFamily: "'Montserrat', sans-serif",
+                fontSize: '18px',
+                transition: 'all 0.3s ease',
+                textShadow: '0 1px 2px rgba(0,0,0,0.3)'
+              }}
+              onMouseEnter={(e) => {
+                e.target.style.background = 'linear-gradient(135deg, #FFA500, #FFDF00, #FF7F50)';
+                e.target.style.transform = 'translateY(-2px)';
+                e.target.style.boxShadow = '0 5px 15px rgba(255, 140, 0, 0.5)';
+              }}
+              onMouseLeave={(e) => {
+                e.target.style.background = 'linear-gradient(135deg, #FF8C00, #FFD700, #FF6347)';
+                e.target.style.transform = 'translateY(0)';
+                e.target.style.boxShadow = 'none';
+              }}
+            >
+              Search Now
+            </button>
+          </form>
+        </div>
+      </div>
+    );
+  };
+
+  return (
+    <>
+      {/* Add Google Fonts for Montserrat */}
+      <link
+        href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;500;600;700;800&display=swap"
+        rel="stylesheet"
+      />
+
+      {/* Desktop Sidebar */}
+      <div className="hidden lg:block">
+        {/* Sidebar Toggle Button - MOVED TO LEFT MIDDLE */}
+        <motion.button
+          onClick={toggleSidebar}
+          className="fixed z-[1000]"
+          style={{
+            left: isSidebarExpanded ? '250px' : '0px',
+            top: '50%',
+            transform: 'translateY(-50%)',
+            width: '40px',
+            height: '40px',
+            borderRadius: '50%',
+            background: '#ffffffff',
+            border: '2px solid #D4AF37',
+            color: '#D4AF37',
+            cursor: 'pointer',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            fontSize: '18px',
+            fontWeight: 'bold',
+            transition: 'all 0.3s ease',
+            boxShadow: '0 0 10px rgba(212, 175, 55, 0.3)',
+            zIndex: 1000
+          }}
+          animate={{
+            left: isSidebarExpanded ? '250px' : '0px',
+          }}
+          transition={{ duration: 0.3, ease: "easeInOut" }}
+          onMouseEnter={(e) => {
+            e.target.style.background = '#D4AF37';
+            e.target.style.color = '#000';
+            e.target.style.boxShadow = '0 0 15px rgba(212, 175, 55, 0.5)';
+          }}
+          onMouseLeave={(e) => {
+            e.target.style.background = 'transparent';
+            e.target.style.color = '#D4AF37';
+            e.target.style.boxShadow = '0 0 10px rgba(212, 175, 55, 0.3)';
+          }}
+        >
+          {isSidebarExpanded ? '<' : '>'}
+        </motion.button>
+
+        {/* Sidebar */}
+        <motion.nav 
+          className="fixed top-0 left-0 h-full z-[999] transition-all duration-500"
+          style={{
+            background: '#000000',
+            backdropFilter: 'blur(15px)',
+            borderRight: '2px solid #FF8C00',
+            overflow: 'hidden',
+            boxShadow: '5px 0 25px rgba(255, 140, 0, 0.15)'
+          }}
+          animate={{
+            width: isSidebarExpanded ? '250px' : '0px',
+          }}
+          transition={{ duration: 0.3, ease: "easeInOut" }}
+        >
+          <div
+            style={{
+              display: 'flex',
+              flexDirection: 'column',
+              height: '100%',
+              padding: '20px 10px',
+              justifyContent: 'space-between',
+              width: '250px',
+              opacity: isSidebarExpanded ? 1 : 0,
+              transition: 'opacity 0.2s ease'
+            }}
+          >
+            {/* Logo Container - UPDATED WITH BORDER NONE AND BLACK COLOR */}
+            <div style={{ 
+              textAlign: 'center',
+              marginBottom: '15px',
+              padding: '10px 0'
+            }}>
+              <a href="#home">
+                <div style={{
+                  width: '200px',
+                  height: '120px',
+                  margin: '0 auto',
+                  borderRadius: '8px',
+                  background: '#000000', // Black background
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  border: 'none', // Border removed
+                  boxShadow: '0 0 20px rgba(255, 140, 0, 0.5)',
+                  transition: 'all 0.3s ease',
+                  overflow: 'hidden'
+                }}
+                onMouseEnter={(e) => {
+                  e.target.style.transform = 'scale(1.05)';
+                  e.target.style.boxShadow = '0 0 25px rgba(255, 140, 0, 0.7)';
+                }}
+                onMouseLeave={(e) => {
+                  e.target.style.transform = 'scale(1)';
+                  e.target.style.boxShadow = '0 0 20px rgba(255, 140, 0, 0.5)';
+                }}
+                >
+                  <img 
+                    src="/src/assets/comp-logo.png" 
+                    alt="ADMARK Logo" 
+                    style={{
+                      width: '100%', // Full width according to space
+                      height: '100%', // Full height according to space
+                      objectFit: 'contain', // Fit the image properly
+                      padding: '5px'
+                    }}
+                    onError={(e) => {
+                      e.target.style.display = 'none';
+                      e.target.nextSibling.style.display = 'flex';
+                    }}
+                  />
+                  <div style={{
+                    display: 'none',
+                    width: '100%',
+                    height: '100%',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    background: '#000000', // Black background
+                    color: '#FF8C00', // Orange text for fallback
+                    fontWeight: 'bold',
+                    fontSize: '16px',
+                    fontFamily: "'Montserrat', sans-serif",
+                    borderRadius: '8px'
+                  }}>
+                    
+                  </div>
+                </div>
+              </a>
+            </div>
+
+            {/* Navigation Links */}
+            <div style={{ 
+              flex: 1,
+              display: 'flex',
+              flexDirection: 'column',
+              gap: '8px',
+              padding: '0 5px',
+              justifyContent: 'center'
+            }}>
+              {navLinks.map((link, index) => (
+                <a
+                  key={index}
+                  href={link.href}
+                  onClick={(e) => handleSmoothScroll(e, link.href)}
+                  style={{
+                    color: '#ffffff',
+                    textDecoration: 'none',
+                    fontSize: '14px',
+                    fontWeight: '600',
+                    padding: '12px 15px',
+                    borderRadius: '6px',
+                    background: 'rgba(255, 255, 255, 0.05)',
+                    border: '1px solid #333',
+                    transition: 'all 0.3s ease',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '15px',
+                    fontFamily: "'Montserrat', sans-serif",
+                    minHeight: '50px',
+                    textShadow: '0 1px 2px rgba(0,0,0,0.5)',
+                    justifyContent: 'flex-start',
+                    textTransform: 'uppercase',
+                    letterSpacing: '1px'
+                  }}
+                  onMouseEnter={(e) => {
+                    e.target.style.background = 'rgba(255, 140, 0, 0.2)';
+                    e.target.style.border = '1px solid #FF8C00';
+                    e.target.style.transform = 'translateX(3px)';
+                    e.target.style.boxShadow = '0 3px 12px rgba(255, 140, 0, 0.3)';
+                  }}
+                  onMouseLeave={(e) => {
+                    e.target.style.background = 'rgba(255, 255, 255, 0.05)';
+                    e.target.style.border = '1px solid #333';
+                    e.target.style.transform = 'translateX(0)';
+                    e.target.style.boxShadow = 'none';
+                  }}
+                >
+                  <span style={{ 
+                    whiteSpace: 'nowrap', 
+                    overflow: 'hidden', 
+                    textOverflow: 'ellipsis',
+                    fontSize: '14px',
+                    fontWeight: '600'
+                  }}>
+                    {link.name}
+                  </span>
+                </a>
+              ))}
+            </div>
+
+            {/* Action Buttons */}
+            <div style={{ 
+              display: 'flex', 
+              flexDirection: 'column',
+              gap: '8px',
+              marginTop: '20px',
+              padding: '15px 5px 5px 5px',
+              borderTop: '1px solid #333'
+            }}>
+              <button
+                onClick={openSearch}
+                style={{
+                  padding: '12px 15px',
+                  borderRadius: '6px',
+                  background: 'rgba(255, 255, 255, 0.08)',
+                  border: '1px solid #444',
+                  color: '#FF8C00',
+                  cursor: 'pointer',
+                  fontSize: '14px',
+                  fontWeight: '600',
+                  transition: 'all 0.3s ease',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: '10px',
+                  fontFamily: "'Montserrat', sans-serif",
+                  minHeight: '50px',
+                  textShadow: '0 1px 2px rgba(0,0,0,0.5)',
+                  textTransform: 'uppercase',
+                  letterSpacing: '1px'
+                }}
+                onMouseEnter={(e) => {
+                  e.target.style.background = 'rgba(255, 140, 0, 0.2)';
+                  e.target.style.border = '1px solid #FF8C00';
+                  e.target.style.transform = 'translateY(-1px)';
+                  e.target.style.boxShadow = '0 3px 12px rgba(255, 140, 0, 0.3)';
+                }}
+                onMouseLeave={(e) => {
+                  e.target.style.background = 'rgba(255, 255, 255, 0.08)';
+                  e.target.style.border = '1px solid #444';
+                  e.target.style.transform = 'translateY(0)';
+                  e.target.style.boxShadow = 'none';
+                }}
+              >
+                <span>Search</span>
+              </button>
+
+              <a
+                href="/pricing"
+                onClick={(e) => handleSmoothScroll(e, "/pricing")}
+                style={{
+                  padding: '12px 15px',
+                  borderRadius: '6px',
+                  fontWeight: '700',
+                  fontSize: '14px',
+                  background: 'rgba(255, 140, 0, 0.2)',
+                  border: '1px solid #FF8C00',
+                  color: '#FF8C00',
+                  textDecoration: 'none',
+                  textAlign: 'center',
+                  transition: 'all 0.3s ease',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: '10px',
+                  fontFamily: "'Montserrat', sans-serif",
+                  minHeight: '50px',
+                  textShadow: '0 1px 2px rgba(0,0,0,0.5)',
+                  textTransform: 'uppercase',
+                  letterSpacing: '1px'
+                }}
+                onMouseEnter={(e) => {
+                  e.target.style.background = 'rgba(255, 140, 0, 0.3)';
+                  e.target.style.transform = 'translateY(-1px)';
+                  e.target.style.boxShadow = '0 3px 12px rgba(255, 140, 0, 0.4)';
+                }}
+                onMouseLeave={(e) => {
+                  e.target.style.background = 'rgba(255, 140, 0, 0.2)';
+                  e.target.style.transform = 'translateY(0)';
+                  e.target.style.boxShadow = 'none';
+                }}
+              >
+                <span>Pricing</span>
+              </a>
+
+              <button
+                onClick={openPopup}
+                style={{
+                  padding: '14px 15px',
+                  borderRadius: '6px',
+                  fontWeight: '700',
+                  fontSize: '14px',
+                  background: 'linear-gradient(135deg, #FF8C00, #FFD700, #FF6347)',
+                  color: '#000',
+                  border: 'none',
+                  cursor: 'pointer',
+                  transition: 'all 0.3s ease',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: '10px',
+                  fontFamily: "'Montserrat', sans-serif",
+                  minHeight: '50px',
+                  textShadow: '0 1px 2px rgba(0,0,0,0.3)',
+                  textTransform: 'uppercase',
+                  letterSpacing: '1px'
+                }}
+                onMouseEnter={(e) => {
+                  e.target.style.background = 'linear-gradient(135deg, #FFA500, #FFDF00, #FF7F50)';
+                  e.target.style.transform = 'translateY(-2px)';
+                  e.target.style.boxShadow = '0 5px 15px rgba(255, 140, 0, 0.5)';
+                }}
+                onMouseLeave={(e) => {
+                  e.target.style.background = 'linear-gradient(135deg, #FF8C00, #FFD700, #FF6347)';
+                  e.target.style.transform = 'translateY(0)';
+                  e.target.style.boxShadow = 'none';
+                }}
+              >
+                <span>Free Audit</span>
+              </button>
+            </div>
+          </div>
+        </motion.nav>
+      </div>
+
+      {/* Mobile Horizontal Navbar */}
+      <nav 
+        className="lg:hidden fixed top-0 left-0 right-0 z-[999] transition-all duration-500"
+        style={{
+          background: 'rgba(0, 0, 0, 0.98)',
+          backdropFilter: 'blur(15px)',
+          borderBottom: '2px solid #FF8C00',
+          width: '100%',
+          boxShadow: '0 5px 25px rgba(255, 140, 0, 0.15)'
+        }}
+      >
+        <div className="px-4 sm:px-6" style={{ width: '100%' }}>
+          <div className="flex items-center justify-between py-3" style={{ width: '100%' }}>
+            {/* Mobile Logo - UPDATED WITH BORDER NONE AND BLACK COLOR */}
+            <a href="#home" className="block">
+              <div style={{
+                width: '50px',
+                height: '30px',
+                borderRadius: '4px',
+                background: '#000000', // Black background
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                border: 'none', // Border removed
+                boxShadow: '0 0 15px rgba(255, 140, 0, 0.5)',
+                overflow: 'hidden'
+              }}>
+                <img 
+                  src="/src/assets/comp-logo.png" 
+                  alt="ADMARK Logo" 
+                  style={{
+                    width: '100%', // Full width according to space
+                    height: '100%', // Full height according to space
+                    objectFit: 'contain', // Fit the image properly
+                    padding: '3px'
+                  }}
+                  onError={(e) => {
+                    e.target.style.display = 'none';
+                    e.target.nextSibling.style.display = 'flex';
+                  }}
+                />
+                <div style={{
+                  display: 'none',
+                  width: '100%',
+                  height: '100%',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  background: '#000000', // Black background
+                  color: '#FF8C00', // Orange text for fallback
+                  fontWeight: 'bold',
+                  fontSize: '12px',
+                  fontFamily: "'Montserrat', sans-serif",
+                  borderRadius: '4px'
+                }}>
+                  AD
+                </div>
+              </div>
+            </a>
+
+            <div className="flex items-center gap-3">
+              <button
+                onClick={openSearch}
+                className="p-3 rounded transition-all duration-300"
+                aria-label="Search"
+                style={{
+                  color: '#FF8C00',
+                  background: 'rgba(255, 255, 255, 0.08)',
+                  border: '1px solid #444'
+                }}
+              >
+                <svg className="h-6 w-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                </svg>
+              </button>
+
+              <button
+                onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
+                className="p-3 rounded transition-all duration-300"
+                aria-label="Toggle menu"
+                style={{
+                  color: '#FF8C00',
+                  background: 'rgba(255, 255, 255, 0.08)',
+                  border: '1px solid #444'
+                }}
+              >
+                <svg
+                  className="h-6 w-6"
+                  fill="none"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth="2"
+                  viewBox="0 0 24 24"
+                  stroke="currentColor"
+                >
+                  {isMobileMenuOpen ? (
+                    <path d="M6 18L18 6M6 6l12 12" />
+                  ) : (
+                    <path d="M4 6h16M4 12h16M4 18h16" />
+                  )}
+                </svg>
+              </button>
+            </div>
+          </div>
+        </div>
+
+        {isMobileMenuOpen && (
+          <div 
+            style={{
+              background: 'rgba(0, 0, 0, 0.98)',
+              backdropFilter: 'blur(15px)',
+              borderBottom: '2px solid #FF8C00',
+              width: '100%'
+            }}
+          >
+            <div className="px-4 pt-3 pb-6 space-y-3">
+              {navLinks.map((link, index) => (
+                <a
+                  key={index}
+                  href={link.href}
+                  onClick={(e) => {
+                    handleSmoothScroll(e, link.href);
+                    setIsMobileMenuOpen(false);
+                  }}
+                  className="block px-4 py-3 rounded transition-all duration-300"
+                  style={{
+                    color: '#fff',
+                    background: 'rgba(255, 255, 255, 0.08)',
+                    fontSize: '16px',
+                    fontWeight: '600',
+                    border: '1px solid #333',
+                    textAlign: 'left',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '12px',
+                    fontFamily: "'Montserrat', sans-serif",
+                    minHeight: '50px',
+                    textTransform: 'uppercase',
+                    letterSpacing: '1px'
+                  }}
+                >
+                  {link.name}
+                </a>
+              ))}
+              
+              <a
+                href="/pricing"
+                onClick={(e) => {
+                  handleSmoothScroll(e, "/pricing");
+                  setIsMobileMenuOpen(false);
+                }}
+                className="block w-full px-4 py-3 rounded transition-all duration-300"
+                style={{
+                  background: 'rgba(255, 140, 0, 0.2)',
+                  color: '#FF8C00',
+                  fontSize: '16px',
+                  border: '1px solid #FF8C00',
+                  textAlign: 'center',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: '10px',
+                  fontWeight: '700',
+                  fontFamily: "'Montserrat', sans-serif",
+                  minHeight: '50px',
+                  textTransform: 'uppercase',
+                  letterSpacing: '1px'
+                }}
+              >
+                Pricing Plan
+              </a>
+
+              <button
+                onClick={() => {
+                  openPopup();
+                  setIsMobileMenuOpen(false);
+                }}
+                className="block w-full px-4 py-3 rounded transition-all duration-300"
+                style={{
+                  background: 'linear-gradient(135deg, #FF8C00, #FFD700, #FF6347)',
+                  color: '#000',
+                  fontSize: '16px',
+                  border: 'none',
+                  marginTop: '5px',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: '10px',
+                  fontWeight: '700',
+                  fontFamily: "'Montserrat', sans-serif",
+                  minHeight: '50px',
+                  textTransform: 'uppercase',
+                  letterSpacing: '1px'
+                }}
+              >
+                Free Audit
+              </button>
+            </div>
+          </div>
+        )}
+      </nav>
+
+      <FreeAuditPopup />
+      <SearchPopup />
+
+      {/* Add margin for desktop to account for sidebar */}
+      <div className="hidden lg:block" style={{ 
+        marginLeft: isSidebarExpanded ? '250px' : '0px',
+        transition: 'margin-left 0.3s ease-in-out'
+      }} />
+      <div className="lg:hidden h-16" />
+    </>
+  );
+}
+
+// Main App Component
+function App() {
+  return (
+    <div className="App">
+      <Sidebar />
+      <Hero />
+      {/* Add other sections/components here as needed */}
+    </div>
+  );
+}
+
+export default App;
